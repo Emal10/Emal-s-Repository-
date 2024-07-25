@@ -1,0 +1,77 @@
+import pandas as pd
+import numpy as np
+from freqtrade.strategy.interface import IStrategy
+from freqtrade.strategy import IntParameter, DecimalParameter
+import talib.abstract as ta
+import logging
+
+logger = logging.getLogger(__name__)
+
+class PercentageBasedScalpingStrategy(IStrategy):
+    # Minimal ROI designed for the strategy
+    minimal_roi = {
+        "0": 0.05  # Placeholder, actual TP logic in custom_minimal_roi
+    }
+
+    # Optimal stoploss designed for the strategy
+    stoploss = -0.30  # Placeholder, actual SL logic in custom_stoploss
+
+    # Trailing stoploss
+    trailing_stop = True
+    trailing_stop_positive = 0.01
+    trailing_stop_positive_offset = 0.02
+    trailing_only_offset_is_reached = True
+
+    # Timeframe for the strategy
+    timeframe = '5m'
+
+    # Leverage setting
+    leverage = 10
+
+    # Define minimal amount to trade
+    def min_amount_to_trade(self, pair: str) -> float:
+        return 150
+
+    # Calculate margin as 0.50% of capital
+    def get_margin(self, pair: str) -> float:
+        capital = self.wallets.get_total_balance(pair, convert=False)
+        margin = capital * 0.005
+        return margin
+
+    # Entry strategy
+    def populate_indicators(self, dataframe: pd.DataFrame, metadata: dict) -> pd.DataFrame:
+        dataframe['rsi'] = ta.RSI(dataframe)
+        dataframe['ema'] = ta.EMA(dataframe, timeperiod=50)
+        return dataframe
+
+    def populate_buy_trend(self, dataframe: pd.DataFrame, metadata: dict) -> pd.DataFrame:
+        dataframe.loc[
+            (
+                (dataframe['close'] > dataframe['ema']) & 
+                (dataframe['rsi'] < 30)
+            ),
+            'buy'] = 1
+        return dataframe
+
+    def populate_sell_trend(self, dataframe: pd.DataFrame, metadata: dict) -> pd.DataFrame:
+        dataframe.loc[
+            (
+                (dataframe['rsi'] > 70)
+            ),
+            'sell'] = 1
+        return dataframe
+
+    # Custom stoploss to handle 100% margin loss
+    def custom_stoploss(self, pair: str, trade: 'Trade', current_time: 'datetime', current_rate: float, current_profit: float, **kwargs) -> float:
+        margin_loss = self.get_margin(pair)
+        if current_profit < -margin_loss:
+            return 0.01
+        return 0.02
+
+    # Leverage settings (custom function to set leverage for each trade)
+    def leverage(self, pair: str, current_time: 'datetime', current_rate: float, proposed_leverage: float, **kwargs) -> float:
+        return self.leverage
+
+    # Randomly set take profit between 5% and 10%
+    def custom_minimal_roi(self, pair: str, current_time: 'datetime', current_rate: float, **kwargs) -> float:
+        return np.random.uniform(0.05, 0.10)
